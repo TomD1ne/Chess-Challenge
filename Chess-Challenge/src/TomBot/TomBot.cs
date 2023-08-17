@@ -33,7 +33,6 @@ public class TomBot : IChessBot
                 if (capturedPieceValue > highestMoveValue)
                 {
                     highestMoveValue = capturedPieceValue;
-                    Console.WriteLine(highestMoveValue);
                     moveToPlay = move;
                 }
                 if (highestMoveValue == 0 || highestMoveValue == 10)
