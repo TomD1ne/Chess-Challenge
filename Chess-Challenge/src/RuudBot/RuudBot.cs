@@ -1,6 +1,6 @@
 ﻿using ChessChallenge.API;
 
-public class MyBot : IChessBot
+public class RuudBot : IChessBot
 {
     public Move Think(Board board, Timer timer)
     {
