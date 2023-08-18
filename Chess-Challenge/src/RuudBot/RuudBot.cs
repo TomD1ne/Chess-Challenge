@@ -4,79 +4,90 @@ using ChessChallenge.API;
 
 public class RuudBot : IChessBot
 {
-    Random rng = new();
+    readonly Random rng = new();
 
-    int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
-    int[] attackValues = { 0, 1, 3, 3, 5, 9, 20 };
+    readonly int[] weights = { 0, 1, 3, 3, 5, 9, 30 };
+    readonly int captureFactor = 1000;
+    readonly int attackFactor = 30;
+    readonly int freeMovesFactor = 1;
+    readonly bool debug = false;
 
     public Move Think(Board board, Timer timer)
     {
-        Console.WriteLine(AttackScore(board));
-        return (Move)BestMove(board, 1).Item1;
-    }
+        return ThinkAhead(0).Item1;
 
-    public (Move?, int) BestMove(Board board, int depth)
-    {
-        Move[] moves = board.GetLegalMoves();
-        if (moves.Length == 0) return (null, 0);
-        Move moveToPlay = moves[rng.Next(moves.Length)];
-        int highestGain = 0;
-        foreach (Move move in moves)
+        (Move, int) ThinkAhead(int depth)
         {
-            // Always play checkmate in one
-            if (MoveIsCheckmate(board, move))
+            if (debug && depth == 0) Console.WriteLine("Thinking for " + (board.IsWhiteToMove ? "White" : "Black"));
+            Move[] moves = board.GetLegalMoves();
+            Move moveToPlay = debug ? (moves.Length > 0 ? moves[0] : Move.NullMove) : RandomMove();
+            int highScore = -1000000;
+            foreach (Move move in moves)
             {
-                moveToPlay = move;
-                break;
-            }
+                // Always play checkmate in one
+                if (WithMove(move, () => board.IsInCheckmate()))
+                    return (move, captureFactor * weights[(int)PieceType.King]);
 
-            // Find highest value capture
-            Piece capturedPiece = board.GetPiece(move.TargetSquare);
-            int capturedPieceValue = pieceValues[(int)capturedPiece.PieceType];
+                // Find highest value capture
+                Piece capturedPiece = board.GetPiece(move.TargetSquare);
+                int captureScore = captureFactor * weights[(int)capturedPiece.PieceType];
+                int score = captureScore;
 
-            int gain = capturedPieceValue;
+                // Attack score
+                int attackScore = -AttackScore() + WithMove(move, () => AttackScore());
+                score += attackScore;
 
-            gain -= AttackScore(board);
-            board.MakeMove(move); 
-            gain += AttackScore(board);
-            board.UndoMove(move);
+                // Free move score
+                int freeMoveScore = freeMovesFactor * (-moves.Length + WithMove(move, () => board.GetLegalMoves().Length));
+                score += freeMoveScore;
 
-            if (depth > 0) {
-                board.MakeMove(move); 
-                (Move?, int) nextMove = BestMove(board, depth - 1);
-                board.UndoMove(move);
-                gain -= nextMove.Item2;
-            }
-
-            if (gain > highestGain)
-            {
-                highestGain = gain;
-                moveToPlay = move;
-            }
-
-        }
-        return (moveToPlay, highestGain);
-    }
-
-    bool MoveIsCheckmate(Board board, Move move)
-    {
-        board.MakeMove(move);
-        bool isMate = board.IsInCheckmate();
-        board.UndoMove(move);
-        return isMate;
-    }
-
-    int AttackScore(Board board) {
-        int attacks = 0;
-        foreach (PieceList pieceList in board.GetAllPieceLists()) {
-            int attackValue = attackValues[(int)pieceList.TypeOfPieceInList];
-            foreach (Piece piece in pieceList) {
-                bool myPiece = board.IsWhiteToMove == piece.IsWhite;
-                if (board.SquareIsAttackedByOpponent(piece.Square)) {
-                    attacks += (myPiece ? -1 : 1) * attackValue;
+                // Recursion
+                if (depth < 1)
+                {
+                    var (nextMove, nextScore) = WithMove(move, () => ThinkAhead(depth + 1));
+                    score -= nextScore; 
+                    if (debug) Console.WriteLine("" + move + "  score: " + score + "  capture: " + captureScore + "  attack: " + attackScore + "  freeMove: " + freeMoveScore + "  nextScore: " + nextScore + "  next" + nextMove);
                 }
-            } 
-        }            
-        return attacks;
+
+                if (score > highScore)
+                {
+                    highScore = score;
+                    moveToPlay = move;
+                }                
+            }
+            return (moveToPlay, highScore);
+        }
+
+        T WithMove<T>(Move move, Func<T> method)
+        {
+            board.MakeMove(move);
+            var result = method();
+            board.UndoMove(move);
+            return result;
+        }
+
+        Move RandomMove()
+        {
+            Move[] moves = board.GetLegalMoves();
+            return moves[rng.Next(moves.Length)];
+        }
+
+        int AttackScore()
+        {
+            int score = 0;
+            foreach (PieceList pieceList in board.GetAllPieceLists())
+            {
+                int attackValue = attackFactor * weights[(int)pieceList.TypeOfPieceInList];
+                foreach (Piece piece in pieceList)
+                {
+                    bool myPiece = board.IsWhiteToMove == piece.IsWhite;
+                    if (board.SquareIsAttackedByOpponent(piece.Square))
+                    {
+                        score += myPiece ? -attackValue : attackValue;
+                    }
+                }
+            }
+            return score;
+        }
     }
 }
