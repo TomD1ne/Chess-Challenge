@@ -1,5 +1,4 @@
 ﻿using System;
-using System.IO.Pipes;
 using ChessChallenge.API;
 
 public class RuudBot : IChessBot
@@ -20,7 +19,7 @@ public class RuudBot : IChessBot
         {
             if (debug && depth == 0) Console.WriteLine("Thinking for " + (board.IsWhiteToMove ? "White" : "Black"));
             Move[] moves = board.GetLegalMoves();
-            Move moveToPlay = debug ? (moves.Length > 0 ? moves[0] : Move.NullMove) : RandomMove();
+            Move moveToPlay = moves.Length == 0 ? Move.NullMove : moves[debug ? 0 : rng.Next(moves.Length)];
             int highScore = -1000000;
             foreach (Move move in moves)
             {
@@ -64,12 +63,6 @@ public class RuudBot : IChessBot
             var result = method();
             board.UndoMove(move);
             return result;
-        }
-
-        Move RandomMove()
-        {
-            Move[] moves = board.GetLegalMoves();
-            return moves[rng.Next(moves.Length)];
         }
 
         int AttackScore()
