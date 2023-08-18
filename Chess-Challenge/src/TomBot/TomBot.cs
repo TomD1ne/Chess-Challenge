@@ -16,11 +16,12 @@ public class TomBot : IChessBot
         return bestMove;
     }
 
-    (int, Move) BestMove(Board board, int depth)
+    (int, Move) BestMove(Board board, int depth, bool isOpponent = false)
     {
         Move[] allMoves = board.GetLegalMoves();
+        List<Move> viableMoves = new();
         if (allMoves.Length < 1) { return (0, Move.NullMove); }
-        int currentEval = EvaluateBoard(board);
+        // int currentEval = EvaluateBoard(board);
         Move bestMove = Move.NullMove;
         int bestMoveScore = -1000000;
 
@@ -33,20 +34,34 @@ public class TomBot : IChessBot
                 break;
             }
             board.MakeMove(move);
-            int newEval = currentEval - EvaluateBoard(board);
+            int newEval = EvaluateBoard(board);
+            if (isOpponent)
+                newEval += -1;
             int bestCounterEval = 0;
             if (depth > 0)
             {
-                (bestCounterEval, Move counterMove) = BestMove(board, depth - 1);
-                Console.WriteLine("bot " + move + " eval: " + newEval + " my " + bestMove + " eval: " + bestCounterEval);
+                (bestCounterEval, Move counterMove) = BestMove(board, depth - 1, true);
+                Console.WriteLine("bot " + move + " eval: " + newEval + " my " + counterMove + " eval: " + bestCounterEval + " total eval: " + (newEval - bestCounterEval));
             }
             board.UndoMove(move);
-            newEval -= bestCounterEval;
-            if (newEval >= bestMoveScore || bestMove == Move.NullMove)
+            newEval += bestCounterEval;
+            if (newEval == bestMoveScore)
+            {
+                viableMoves.Add(move);
+            }
+            else if (newEval > bestMoveScore)
             {
                 bestMoveScore = newEval;
+                viableMoves.Clear();
+                viableMoves.Add(move);
                 bestMove = move;
             }
+        }
+        if (viableMoves.Count != 1)
+        {
+            // Console.WriteLine(viableMoves.Count);
+            Random rng = new();
+            bestMove = viableMoves[rng.Next(viableMoves.Count)];
         }
         return (bestMoveScore, bestMove);
     }
