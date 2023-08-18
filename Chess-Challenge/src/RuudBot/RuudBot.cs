@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using ChessChallenge.API;
 
 public class RuudBot : IChessBot
@@ -18,10 +19,10 @@ public class RuudBot : IChessBot
         (Move, int) ThinkAhead(int depth)
         {
             if (debug && depth == 0) Console.WriteLine("Thinking for " + (board.IsWhiteToMove ? "White" : "Black"));
-            Move[] moves = board.GetLegalMoves();
-            Move moveToPlay = moves.Length == 0 ? Move.NullMove : moves[debug ? 0 : rng.Next(moves.Length)];
+            Move[] legalMoves = board.GetLegalMoves();
+            List<Move> bestMoves = new();
             int highScore = -1000000;
-            foreach (Move move in moves)
+            foreach (Move move in legalMoves)
             {
                 // Always play checkmate in one
                 if (WithMove(move, () => board.IsInCheckmate()))
@@ -37,24 +38,29 @@ public class RuudBot : IChessBot
                 score += attackScore;
 
                 // Free move score
-                int freeMoveScore = freeMovesFactor * (-moves.Length + WithMove(move, () => board.GetLegalMoves().Length));
+                int freeMoveScore = freeMovesFactor * (-legalMoves.Length + WithMove(move, () => board.GetLegalMoves().Length));
                 score += freeMoveScore;
 
                 // Recursion
                 if (depth < 1)
                 {
                     var (nextMove, nextScore) = WithMove(move, () => ThinkAhead(depth + 1));
-                    score -= nextScore;
+                    score -= nextScore; 
                     if (debug) Console.WriteLine("" + move + "  score: " + score + "  capture: " + captureScore + "  attack: " + attackScore + "  freeMove: " + freeMoveScore + "  nextScore: " + nextScore + "  next" + nextMove);
                 }
 
-                if (score > highScore)
+                if (score == highScore) {
+                    bestMoves.Add(move);
+                }
+                else if (score > highScore)
                 {
                     highScore = score;
-                    moveToPlay = move;
-                }
+                    bestMoves.Clear();
+                    bestMoves.Add(move);
+                }                
             }
-            return (moveToPlay, highScore);
+            Move bestMove = bestMoves.Count == 0 ? Move.NullMove : bestMoves[debug ? 0 : rng.Next(bestMoves.Count)];
+            return (bestMove, highScore);
         }
 
         T WithMove<T>(Move move, Func<T> method)
