@@ -5,47 +5,65 @@ using System.Collections.Generic;
 public class TomBot : IChessBot
 {
     int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+    bool iAmWhite = true;
 
     public Move Think(Board board, Timer timer)
     {
+        if (!board.IsWhiteToMove)
+            iAmWhite = false;
+        (int bestMoveScore, Move bestMove) = BestMove(board, 1);
+        Console.WriteLine(bestMoveScore + " " + bestMove);
+        return bestMove;
+    }
+
+    (int, Move) BestMove(Board board, int depth, bool isOpponent = false)
+    {
         Move[] allMoves = board.GetLegalMoves();
         List<Move> viableMoves = new();
-
-        // Pick a random move to play if nothing better is found
-        Random rng = new();
-        Move moveToPlay = allMoves[rng.Next(allMoves.Length)];
-        int highestMoveValue = 0;
+        if (allMoves.Length < 1) { return (0, Move.NullMove); }
+        // int currentEval = EvaluateBoard(board);
+        Move bestMove = Move.NullMove;
+        int bestMoveScore = -1000000;
 
         foreach (Move move in allMoves)
         {
-            // Always play checkmate in one
             if (MoveIsCheckmate(board, move))
             {
-                moveToPlay = move;
+                bestMove = move;
+                bestMoveScore = 100000;
                 break;
             }
-            // Find highest value capture
-
-            if (!canBeRecaptured(board, move))
+            board.MakeMove(move);
+            int newEval = EvaluateBoard(board);
+            if (isOpponent)
+                newEval += -1;
+            int bestCounterEval = 0;
+            if (depth > 0)
             {
-                Piece capturedPiece = board.GetPiece(move.TargetSquare);
-                int capturedPieceValue = pieceValues[(int)capturedPiece.PieceType];
-                if (capturedPieceValue > highestMoveValue)
-                {
-                    highestMoveValue = capturedPieceValue;
-                    moveToPlay = move;
-                }
-                if (highestMoveValue == 0 || highestMoveValue == 10)
-                {
-                    highestMoveValue = 10;
-                    viableMoves.Add(move);
-                    // moveToPlay = move;
-                }
+                (bestCounterEval, Move counterMove) = BestMove(board, depth - 1, true);
+                Console.WriteLine("bot " + move + " eval: " + newEval + " my " + counterMove + " eval: " + bestCounterEval + " total eval: " + (newEval - bestCounterEval));
+            }
+            board.UndoMove(move);
+            newEval += bestCounterEval;
+            if (newEval == bestMoveScore)
+            {
+                viableMoves.Add(move);
+            }
+            else if (newEval > bestMoveScore)
+            {
+                bestMoveScore = newEval;
+                viableMoves.Clear();
+                viableMoves.Add(move);
+                bestMove = move;
             }
         }
-        if (highestMoveValue == 10)
-            moveToPlay = viableMoves[rng.Next(viableMoves.Count)];
-        return moveToPlay;
+        if (viableMoves.Count != 1)
+        {
+            // Console.WriteLine(viableMoves.Count);
+            Random rng = new();
+            bestMove = viableMoves[rng.Next(viableMoves.Count)];
+        }
+        return (bestMoveScore, bestMove);
     }
 
     // Test if this move gives checkmate
@@ -56,16 +74,35 @@ public class TomBot : IChessBot
         board.UndoMove(move);
         return isMate;
     }
-
-    bool canBeRecaptured(Board board, Move move)
+    bool CanBeRecaptured(Board board, Move move)
     {
-        board.MakeMove(move);
-        Move[] allMoves = board.GetLegalMoves(true);
-        board.UndoMove(move);
-        foreach (Move capture in allMoves)
-        {
-            if (capture.TargetSquare == move.TargetSquare) return true;
-        }
+        if (board.SquareIsAttackedByOpponent(move.TargetSquare))
+            return true;
         return false;
+    }
+    int EvaluateBoard(Board board)
+    {
+        return PieceScores();
+        int PieceScores()
+        {
+            int whiteTotalPieceScores = 0;
+            int blackTotalPieceScores = 0;
+            PieceList[] allPieces = board.GetAllPieceLists();
+            foreach (PieceList pieceList in allPieces)
+            {
+                foreach (Piece piece in pieceList)
+                {
+                    if (piece.IsWhite)
+                        whiteTotalPieceScores += pieceValues[(int)piece.PieceType];
+                    else
+                        blackTotalPieceScores += pieceValues[(int)piece.PieceType];
+                }
+            }
+            if (iAmWhite)
+            {
+                return whiteTotalPieceScores - blackTotalPieceScores;
+            }
+            return blackTotalPieceScores - whiteTotalPieceScores;
+        }
     }
 }
