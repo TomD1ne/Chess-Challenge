@@ -42,14 +42,15 @@ public class RuudBot : IChessBot
                 score += freeMoveScore;
 
                 // Recursion
-                if (depth < 1)
+                if (depth < 2)
                 {
                     var (nextMove, nextScore) = WithMove(move, () => ThinkAhead(depth + 1));
-                    score -= nextScore; 
+                    score -= nextScore;
                     if (debug) Console.WriteLine("" + move + "  score: " + score + "  capture: " + captureScore + "  attack: " + attackScore + "  freeMove: " + freeMoveScore + "  nextScore: " + nextScore + "  next" + nextMove);
                 }
 
-                if (score == highScore) {
+                if (score == highScore)
+                {
                     bestMoves.Add(move);
                 }
                 else if (score > highScore)
@@ -57,7 +58,7 @@ public class RuudBot : IChessBot
                     highScore = score;
                     bestMoves.Clear();
                     bestMoves.Add(move);
-                }                
+                }
             }
             Move bestMove = bestMoves.Count == 0 ? Move.NullMove : bestMoves[debug ? 0 : rng.Next(bestMoves.Count)];
             return (bestMove, highScore);

@@ -44,7 +44,7 @@ public class TomBot : IChessBot
             if (depth > 0)
             {
                 (bestCounterEval, Move counterMove) = BestMove(board, depth - 1, !isOpponent);
-                // Console.WriteLine("bot " + move + " eval: " + newEval + " my " + counterMove + " eval: " + bestCounterEval + " total eval: " + (newEval - bestCounterEval));
+                Console.WriteLine("bot " + move + " eval: " + newEval + " my " + counterMove + " eval: " + bestCounterEval + " total eval: " + (newEval - bestCounterEval));
             }
             board.UndoMove(move);
             newEval -= bestCounterEval;
@@ -86,7 +86,8 @@ public class TomBot : IChessBot
     }
     int EvaluateBoard(Board board)
     {
-        return PieceScores();
+        return PieceScores() + AmountOfMoves();
+        int AmountOfMoves() => board.GetLegalMoves().Length / 10;
         int PieceScores()
         {
             int whiteTotalPieceScores = 0;
