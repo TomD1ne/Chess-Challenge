@@ -33,8 +33,9 @@ public class RuudBot : IChessBot
 
             int gain = capturedPieceValue;
 
-            if (depth > 0) {
-                board.MakeMove(move); 
+            if (depth > 0)
+            {
+                board.MakeMove(move);
                 (Move?, int) nextMove = BestMove(board, depth - 1);
                 board.UndoMove(move);
                 gain -= nextMove.Item2;
