@@ -1,7 +1,9 @@
 ﻿using ChessChallenge.API;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 public class TomBot : IChessBot
 {
@@ -12,62 +14,64 @@ public class TomBot : IChessBot
 
     public Move Think(Board board, Timer timer)
     {
-        if (!board.IsWhiteToMove)
-            iAmWhite = false;
-        (int bestMoveScore, Move bestMove) = BestMove(board, 2);
-        // Console.WriteLine(bestMoveScore + " " + bestMove);
-        return bestMove;
-    }
-
-    (int, Move) BestMove(Board board, int depth, bool isOpponent = false)
-    {
         Move[] allMoves = board.GetLegalMoves();
         List<Move> viableMoves = new();
-        if (allMoves.Length < 1) { return (0, Move.NullMove); }
-        // int currentEval = EvaluateBoard(board);
-        Move bestMove = Move.NullMove;
-        int bestMoveScore = -1000000;
+        if (!board.IsWhiteToMove)
+            iAmWhite = false;
 
+        Move bestMove = allMoves[0];
+        int bestMoveScore = int.MinValue;
+        foreach (Move move in allMoves)
+        {
+            board.MakeMove(move);
+            int moveScore = AlphaBeta(board);
+            // Console.WriteLine(move + " " + moveScore);
+            if (moveScore > bestMoveScore)
+            {
+                viableMoves.Clear();
+                bestMoveScore = moveScore;
+            }
+            if (moveScore >= bestMoveScore)
+                viableMoves.Add(move);
+            board.UndoMove(move);
+        }
+
+        bestMove = viableMoves[rng.Next(viableMoves.Count)];
+        // Console.WriteLine("best " + bestMove + " totalEval " + EvaluateBoard(board));
+        // (int bestMoveScore, Move bestMove) = BestMove(board, 2);
+
+        return bestMove;
+    }
+    int AlphaBeta(Board board, int depth = 2, int alpha = int.MinValue, int beta = int.MaxValue, bool isSelf = false)
+    {
+        Move[] allMoves = board.GetLegalMoves();
+
+        if (depth == 0) return EvaluateBoard(board, allMoves);
+
+        int value = isSelf ? int.MinValue : int.MaxValue;
         foreach (Move move in allMoves)
         {
             if (MoveIsCheckmate(board, move))
-            {
-                bestMove = move;
-                bestMoveScore = 100000;
-                break;
-            }
+                return isSelf ? int.MaxValue : int.MinValue; ;
             board.MakeMove(move);
-            int newEval = EvaluateBoard(board);
-            if (isOpponent)
-                newEval *= -1;
-            int bestCounterEval = 0;
-            if (depth > 0)
-            {
-                (bestCounterEval, Move counterMove) = BestMove(board, depth - 1, !isOpponent);
-                Console.WriteLine("bot " + move + " eval: " + newEval + " my " + counterMove + " eval: " + bestCounterEval + " total eval: " + (newEval - bestCounterEval));
-            }
+            // if (depth == 1) Console.WriteLine(move);
+            value = isSelf
+            ? Math.Max(value, AlphaBeta(board, depth - 1, alpha, beta, false))
+            : Math.Min(value, AlphaBeta(board, depth - 1, alpha, beta, true));
             board.UndoMove(move);
-            newEval -= bestCounterEval;
-            if (newEval == bestMoveScore)
+
+            if (isSelf)
             {
-                viableMoves.Add(move);
+                if (value >= beta) break;
+                alpha = Math.Max(alpha, value);
             }
-            else if (newEval > bestMoveScore)
+            else
             {
-                bestMoveScore = newEval;
-                viableMoves.Clear();
-                viableMoves.Add(move);
-                bestMove = move;
+                if (value <= alpha) break;
+                beta = Math.Min(beta, value);
             }
         }
-        if (viableMoves.Count == 0)
-            return (-100, allMoves[rng.Next(allMoves.Length)]);
-        if (viableMoves.Count > 1)
-        {
-            // Console.WriteLine(viableMoves.Count);
-            bestMove = viableMoves[rng.Next(viableMoves.Count)];
-        }
-        return (bestMoveScore, bestMove);
+        return value;
     }
 
     // Test if this move gives checkmate
@@ -78,20 +82,24 @@ public class TomBot : IChessBot
         board.UndoMove(move);
         return isMate;
     }
-    bool CanBeRecaptured(Board board, Move move)
+    int EvaluateBoard(Board board, Move[] allMoves, bool debug = false)
     {
-        if (board.SquareIsAttackedByOpponent(move.TargetSquare))
-            return true;
-        return false;
-    }
-    int EvaluateBoard(Board board)
-    {
-        return PieceScores() + AmountOfMoves();
-        int AmountOfMoves() => board.GetLegalMoves().Length / 10;
+        bool myTurn = (board.IsWhiteToMove && iAmWhite) || (!board.IsWhiteToMove && !iAmWhite);
+        // if (debug) Console.WriteLine("PieceScore: " + PieceScores() + " MoveScore: " + MoveScore());
+        return PieceScores() + MoveScore();
+
+        int MoveScore()
+        {
+            int amountOfMovesCurrent = allMoves.Length / 10;
+            bool turnSkipped = board.TrySkipTurn();
+            int amountOfMovesNext = turnSkipped ? amountOfMovesCurrent : 20;
+            if (turnSkipped) board.UndoSkipTurn();
+            return myTurn ? amountOfMovesCurrent - amountOfMovesNext : amountOfMovesNext - amountOfMovesCurrent;
+        }
+
         int PieceScores()
         {
-            int whiteTotalPieceScores = 0;
-            int blackTotalPieceScores = 0;
+            (int whiteTotalPieceScores, int blackTotalPieceScores) = (0, 0);
             PieceList[] allPieces = board.GetAllPieceLists();
             foreach (PieceList pieceList in allPieces)
             {
@@ -103,11 +111,7 @@ public class TomBot : IChessBot
                         blackTotalPieceScores += pieceValues[(int)piece.PieceType];
                 }
             }
-            if (iAmWhite)
-            {
-                return whiteTotalPieceScores - blackTotalPieceScores;
-            }
-            return blackTotalPieceScores - whiteTotalPieceScores;
+            return iAmWhite ? whiteTotalPieceScores - blackTotalPieceScores : blackTotalPieceScores - whiteTotalPieceScores;
         }
     }
 }
