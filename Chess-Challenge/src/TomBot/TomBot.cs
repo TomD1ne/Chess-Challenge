@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
@@ -9,78 +10,90 @@ public class TomBot : IChessBot
 {
     int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
     bool iAmWhite = true;
+    // Move bestMove = Move.NullMove;
     Random rng = new();
     bool debug = true;
 
     public Move Think(Board board, Timer timer)
     {
-        Move[] allMoves = board.GetLegalMoves();
-        List<Move> viableMoves = new();
         if (!board.IsWhiteToMove)
             iAmWhite = false;
 
-        Move bestMove = allMoves[0];
-        int bestMoveScore = int.MinValue;
-        foreach (Move move in allMoves)
-        {
-            board.MakeMove(move);
-            int moveScore = AlphaBeta(board);
-            // Console.WriteLine(move + " " + moveScore);
-            if (moveScore > bestMoveScore)
-            {
-                viableMoves.Clear();
-                bestMoveScore = moveScore;
-            }
-            if (moveScore >= bestMoveScore)
-                viableMoves.Add(move);
-            board.UndoMove(move);
-        }
-
-        bestMove = viableMoves[rng.Next(viableMoves.Count)];
-        // Console.WriteLine("best " + bestMove + " totalEval " + EvaluateBoard(board));
-        // (int bestMoveScore, Move bestMove) = BestMove(board, 2);
+        (int moveScore, Move bestMove) = AlphaBeta(board, isSelf: true);
+        // Console.WriteLine("best " + bestMove + " totalEval " + moveScore);
+        // Console.WriteLine(" ");
 
         return bestMove;
     }
-    int AlphaBeta(Board board, int depth = 2, int alpha = int.MinValue, int beta = int.MaxValue, bool isSelf = false)
+    (int, Move) AlphaBeta(Board board, int depth = 4, int alpha = int.MinValue, int beta = int.MaxValue, bool isSelf = true)
     {
-        Move[] allMoves = board.GetLegalMoves();
 
-        if (depth == 0) return EvaluateBoard(board, allMoves);
+        Move[] allMoves = OrderMoves(board);
+        if (board.IsInCheckmate()) return isSelf ? (int.MinValue, Move.NullMove) : (int.MaxValue, Move.NullMove);
+        if (depth == 0 || allMoves.Length == 0) return (EvaluateBoard(board, allMoves), Move.NullMove);
+
+        List<Move> viableMoves = new();
 
         int value = isSelf ? int.MinValue : int.MaxValue;
         foreach (Move move in allMoves)
         {
-            if (MoveIsCheckmate(board, move))
-                return isSelf ? int.MaxValue : int.MinValue; ;
             board.MakeMove(move);
-            // if (depth == 1) Console.WriteLine(move);
-            value = isSelf
-            ? Math.Max(value, AlphaBeta(board, depth - 1, alpha, beta, false))
-            : Math.Min(value, AlphaBeta(board, depth - 1, alpha, beta, true));
-            board.UndoMove(move);
-
             if (isSelf)
             {
-                if (value >= beta) break;
+                int moveValue = AlphaBeta(board, depth - 1, alpha, beta, false).Item1;
+                board.UndoMove(move);
+                if (moveValue > value)
+                {
+                    value = moveValue;
+                    viableMoves.Clear();
+                }
+
+                if (moveValue == value) viableMoves.Add(move);
+
+                if (value > beta) break;
+
                 alpha = Math.Max(alpha, value);
             }
             else
             {
-                if (value <= alpha) break;
+                int moveValue = AlphaBeta(board, depth - 1, alpha, beta, true).Item1;
+                board.UndoMove(move);
+                if (moveValue < value)
+                {
+                    value = moveValue;
+                    viableMoves.Clear();
+                }
+                if (moveValue == value) viableMoves.Add(move);
+                if (value < alpha) break;
                 beta = Math.Min(beta, value);
             }
         }
-        return value;
+        return (value, viableMoves[rng.Next(viableMoves.Count)]);
     }
 
     // Test if this move gives checkmate
-    bool MoveIsCheckmate(Board board, Move move)
+    // bool MoveIsCheckmate(Board board, Move move)
+    // {
+    //     board.MakeMove(move);
+    //     bool isMate = board.IsInCheckmate();
+    //     board.UndoMove(move);
+    //     return isMate;
+    // }
+    Move[] OrderMoves(Board board)
     {
-        board.MakeMove(move);
-        bool isMate = board.IsInCheckmate();
-        board.UndoMove(move);
-        return isMate;
+        Move[] allMoves = board.GetLegalMoves();
+        List<Move> moves = new(allMoves.Length);
+        List<Move> nonCaptures = new(allMoves.Length);
+        foreach (Move move in allMoves)
+        {
+            if (move.IsCapture)
+                moves.Add(move);
+
+            else
+                nonCaptures.Add(move);
+        }
+        moves.AddRange(nonCaptures);
+        return moves.ToArray();
     }
     int EvaluateBoard(Board board, Move[] allMoves, bool debug = false)
     {
@@ -92,7 +105,7 @@ public class TomBot : IChessBot
         {
             int amountOfMovesCurrent = allMoves.Length / 10;
             bool turnSkipped = board.TrySkipTurn();
-            int amountOfMovesNext = turnSkipped ? amountOfMovesCurrent : 20;
+            int amountOfMovesNext = turnSkipped ? board.GetLegalMoves().Length / 10 : 8;
             if (turnSkipped) board.UndoSkipTurn();
             return myTurn ? amountOfMovesCurrent - amountOfMovesNext : amountOfMovesNext - amountOfMovesCurrent;
         }
