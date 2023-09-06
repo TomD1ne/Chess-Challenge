@@ -1,40 +1,54 @@
 ﻿using ChessChallenge.API;
+using Microsoft.CodeAnalysis;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 public class TomBot : IChessBot
 {
+    const sbyte EXACT = 0, LOWERBOUND = -1, UPPERBOUND = 1, INVALID = -2;
     int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
     bool iAmWhite = true;
+    Transposition[] TPTable = new Transposition[0x7FFFFF + 1];
     // Move bestMove = Move.NullMove;
     Random rng = new();
-    bool debug = true;
+    // bool debug = true;
 
     public Move Think(Board board, Timer timer)
     {
+        sbyte depth = 5;
         if (!board.IsWhiteToMove)
             iAmWhite = false;
 
-        (int moveScore, Move bestMove) = AlphaBeta(board, isSelf: true);
-        // Console.WriteLine("best " + bestMove + " totalEval " + moveScore);
-        // Console.WriteLine(" ");
+        if (board.PlyCount < 6)
+            depth = 3;
 
+        (int moveScore, Move bestMove) = AlphaBeta(board, isSelf: true, depth: depth);
+        // Console.WriteLine("best " + bestMove + " totalEval " + moveScore);
+        Console.WriteLine(timer.MillisecondsRemaining - timer.OpponentMillisecondsRemaining);
         return bestMove;
     }
-    (int, Move) AlphaBeta(Board board, int depth = 4, int alpha = int.MinValue, int beta = int.MaxValue, bool isSelf = true)
+    (int, Move) AlphaBeta(Board board, int depth = 5, int alpha = int.MinValue, int beta = int.MaxValue, bool isSelf = true)
     {
+        ref Transposition transposition = ref TPTable[board.ZobristKey & 0x7FFFFF];
+        Move[] allMoves = OrderMoves(board, transposition);
 
-        Move[] allMoves = OrderMoves(board);
         if (board.IsInCheckmate()) return isSelf ? (int.MinValue, Move.NullMove) : (int.MaxValue, Move.NullMove);
-        if (depth == 0 || allMoves.Length == 0) return (EvaluateBoard(board, allMoves), Move.NullMove);
+
+        if (transposition.zobristHash == board.ZobristKey && transposition.depth >= depth)
+        {
+            if (transposition.flag == EXACT) return (transposition.evaluation, transposition.move);
+            if (transposition.flag == LOWERBOUND && transposition.evaluation >= beta) return (transposition.evaluation, transposition.move);
+            if (transposition.flag == UPPERBOUND && transposition.evaluation <= alpha) return (transposition.evaluation, transposition.move);
+        }
+
+        if (depth == 0 || allMoves.Length == 0) return (transposition.zobristHash == board.ZobristKey) ? (transposition.evaluation, transposition.move) : (EvaluateBoard(board, allMoves), Move.NullMove);
 
         List<Move> viableMoves = new();
-
         int value = isSelf ? int.MinValue : int.MaxValue;
+        int startingAlpha = alpha;
+        int startingBeta = beta;
+
         foreach (Move move in allMoves)
         {
             board.MakeMove(move);
@@ -68,32 +82,61 @@ public class TomBot : IChessBot
                 beta = Math.Min(beta, value);
             }
         }
-        return (value, viableMoves[rng.Next(viableMoves.Count)]);
+        Move bestMove = viableMoves[rng.Next(viableMoves.Count)];
+        transposition = new Transposition
+        {
+            zobristHash = board.ZobristKey,
+            move = bestMove,
+            evaluation = value,
+            depth = depth,
+        };
+
+        if (value < startingAlpha) transposition.flag = UPPERBOUND; //upper bound
+        else if (value >= startingBeta) transposition.flag = LOWERBOUND; //lower bound
+        else transposition.flag = EXACT; //"exact" score
+
+        return (value, bestMove);
     }
 
-    // Test if this move gives checkmate
-    // bool MoveIsCheckmate(Board board, Move move)
-    // {
-    //     board.MakeMove(move);
-    //     bool isMate = board.IsInCheckmate();
-    //     board.UndoMove(move);
-    //     return isMate;
-    // }
-    Move[] OrderMoves(Board board)
+    Move[] OrderMoves(Board board, Transposition transposition)
     {
         Move[] allMoves = board.GetLegalMoves();
-        List<Move> moves = new(allMoves.Length);
-        List<Move> nonCaptures = new(allMoves.Length);
+        PriorityQueue<Move, int> orderedMovesQueue = new PriorityQueue<Move, int>(allMoves.Length);
+        Move[] orderedMoves = new Move[allMoves.Length];
+
+        // ref Transposition transposition = ref TPTable[board.ZobristKey & 0x7FFFFF];
+
         foreach (Move move in allMoves)
         {
-            if (move.IsCapture)
-                moves.Add(move);
+            if (move == transposition.move)
+            {
+                orderedMovesQueue.Enqueue(move, int.MinValue);
+                continue;
+            }
 
-            else
-                nonCaptures.Add(move);
+            // Lower (negative) is higher priority
+            int orderScore = 0;
+            int capturedPieceValue = pieceValues[(int)move.CapturePieceType];
+            int movePieceValue = pieceValues[(int)move.MovePieceType];
+
+            if (move.IsCapture)
+                orderScore -= capturedPieceValue - movePieceValue / 10;
+
+            else orderScore += 100 / movePieceValue;
+
+            if (move.IsPromotion)
+                orderScore -= 500;
+
+            if (board.IsInCheck())
+                orderScore -= 500;
+
+            orderedMovesQueue.Enqueue(move, orderScore);
         }
-        moves.AddRange(nonCaptures);
-        return moves.ToArray();
+
+        for (int i = 0; i < allMoves.Length; i++)
+            orderedMoves[i] = orderedMovesQueue.Dequeue();
+
+        return orderedMoves;
     }
     int EvaluateBoard(Board board, Move[] allMoves, bool debug = false)
     {
@@ -127,4 +170,13 @@ public class TomBot : IChessBot
             return iAmWhite ? whiteTotalPieceScores - blackTotalPieceScores : blackTotalPieceScores - whiteTotalPieceScores;
         }
     }
+    public struct Transposition
+    {
+        public ulong zobristHash;
+        public Move move;
+        public int evaluation;
+        public int depth;
+        public sbyte flag;
+    };
 }
+
